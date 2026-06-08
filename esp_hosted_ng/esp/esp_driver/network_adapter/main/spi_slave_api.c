@@ -19,6 +19,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <rom/rtc.h>
+#include <rom/ets_sys.h>
 #include "esp.h"
 #include "esp_log.h"
 #include "interface.h"
@@ -38,6 +39,20 @@
 #endif
 
 static const char TAG[] = "FW_SPI";
+static const char TAG_RX[] = "H -> S";
+static const char TAG_TX[] = "S -> H";
+
+#if CONFIG_LOG_MAXIMUM_LEVEL >= 4  /* ESP_LOG_DEBUG */
+#define DBG_HS_HIGH() ets_printf("FW_SPI: GPIO_HS=%d: ESP READY FOR TRANSFER\n", 1)
+#define DBG_HS_LOW()  ets_printf("FW_SPI: GPIO_HS=%d: ESP NOT READY FOR TRANSFER\n", 0)
+#define DBG_DR_HIGH() ets_printf("FW_SPI: GPIO_DR=%d: DATA AVAILABLE ON ESP\n", 1)
+#define DBG_DR_LOW()  ets_printf("FW_SPI: GPIO_DR=%d: NO DATA AVAILABLE ON ESP\n", 0)
+#else
+#define DBG_HS_HIGH() do {} while(0)
+#define DBG_HS_LOW()  do {} while(0)
+#define DBG_DR_HIGH() do {} while(0)
+#define DBG_DR_LOW()  do {} while(0)
+#endif
 #define SPI_BITS_PER_WORD           8
 #define SPI_MODE_0              0
 #define SPI_MODE_1              1
@@ -128,7 +143,7 @@ uint8_t g_spi_mode = SPI_MODE_2;
 #define GPIO_CS                10
 #define DMA_CHAN               SPI_DMA_CH_AUTO
 
-#define SPI_CLK_MHZ            30
+#define SPI_CLK_MHZ            20
 
 #elif defined CONFIG_IDF_TARGET_ESP32C6
 
@@ -222,6 +237,7 @@ static void IRAM_ATTR gpio_disable_hs_isr_handler(void* arg)
     if (level == 0) {
         /* CS is asserted, disable HS */
         WRITE_PERI_REG(GPIO_OUT_W1TC_REG, (1ULL << gpio_handshake));
+        DBG_HS_LOW();
     } else {
         /* Last transaction complete, populate next one */
         if (wait_cs_deassert_sem)
@@ -331,6 +347,7 @@ esp_err_t send_bootup_event_to_host(uint8_t cap)
 
     /* indicate waiting data on ready pin */
     WRITE_PERI_REG(GPIO_OUT_W1TS_REG, (1ULL << gpio_data_ready));
+    DBG_DR_HIGH();
     /* process first data packet here to start transactions */
     queue_next_transaction();
 
@@ -340,8 +357,9 @@ esp_err_t send_bootup_event_to_host(uint8_t cap)
 /* Invoked after transaction is queued and ready for pickup by master */
 static void IRAM_ATTR spi_post_setup_cb(spi_slave_transaction_t *trans)
 {
-    /* ESP peripheral ready for spi transaction. Set hadnshake line high. */
+    /* ESP peripheral ready for spi transaction. Set handshake line high. */
     WRITE_PERI_REG(GPIO_OUT_W1TS_REG, (1ULL << gpio_handshake));
+    DBG_HS_HIGH();
 }
 
 /* Invoked after transaction is sent/received.
@@ -351,6 +369,7 @@ static void IRAM_ATTR spi_post_trans_cb(spi_slave_transaction_t *trans)
 #if !HS_DEASSERT_ON_CS
     /* Clear handshake line */
     WRITE_PERI_REG(GPIO_OUT_W1TC_REG, (1ULL << gpio_handshake));
+    DBG_HS_LOW();
 #endif
 }
 
@@ -383,6 +402,7 @@ static bool get_next_tx_buffer(interface_buffer_handle_t *buf_handle)
 
     /* No real data pending, clear ready line and indicate host an idle state */
     WRITE_PERI_REG(GPIO_OUT_W1TC_REG, (1ULL << gpio_data_ready));
+    DBG_DR_LOW();
 
     /* Create empty dummy buffer */
     sendbuf = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_DMA);
@@ -586,7 +606,9 @@ static void spi_transaction_post_process_task(void* pvParameters)
 
         ctx = (spi_trans_ctx_t *)spi_trans->user;
 
-        /*ESP_LOG_BUFFER_HEXDUMP(TAG, spi_trans->tx_buffer, 32, ESP_LOG_INFO);*/
+        /* Debug: print first 16 bytes of every received and sent SPI transfer */
+        ESP_LOG_BUFFER_HEXDUMP(TAG_RX, spi_trans->rx_buffer, 32, ESP_LOG_DEBUG);
+        ESP_LOG_BUFFER_HEXDUMP(TAG_TX, spi_trans->tx_buffer, 32, ESP_LOG_DEBUG);
 
         /* Free any tx buffer, data is not relevant anymore */
         if (ctx && ctx->free_buf_handle) {
@@ -666,7 +688,9 @@ static interface_handle_t * esp_spi_init(void)
     gpio_config(&io_conf);
     gpio_config(&io_data_ready_conf);
     WRITE_PERI_REG(GPIO_OUT_W1TC_REG, (1ULL << gpio_handshake));
+    DBG_HS_LOW();
     WRITE_PERI_REG(GPIO_OUT_W1TC_REG, (1ULL << gpio_data_ready));
+    DBG_DR_LOW();
 
     /* Enable pull-ups on SPI lines
      * so that no rogue pulses when no master is connected
@@ -814,6 +838,7 @@ static int32_t esp_spi_write(interface_handle_t *handle, interface_buffer_handle
 
     /* indicate waiting data on ready pin */
     WRITE_PERI_REG(GPIO_OUT_W1TS_REG, (1ULL << gpio_data_ready));
+    DBG_DR_HIGH();
 
     return buf_handle->payload_len;
 }
