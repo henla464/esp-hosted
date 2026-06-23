@@ -14,3 +14,10 @@ esp_hosted_ng/esp/esp_driver/cmake_install.cmake
 esp_hosted_ng/esp/esp_driver/network_adapter/build
 esp_hosted_ng/esp/esp_driver/network_adapter/sdkconfig
 esp_hosted_ng/esp/esp_driver/network_adapter/sdkconfig.old
+Deepseek.txt
+esp_hosted_ng/esp/esp_driver/.seer/
+esp_hosted_ng/esp/esp_driver/.vscode/
+esp_hosted_ng/esp/esp_driver/esp-idf/
+esp_hosted_ng/esp/esp_driver/network_adapter/main/build/
+esp_hosted_ng/host/.seer/
+
