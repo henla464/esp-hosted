@@ -1097,6 +1097,36 @@ int process_start_scan(uint8_t if_type, uint8_t *payload, uint16_t payload_len)
         config_present = true;
     }
 
+    /*
+     * Optimize scan duration and data disruption:
+     * - If connected, restrict to the current band only (cuts scan time ~50% on C5)
+     * - Use shorter dwell times for background scans
+     * - Enable coex_background_scan to return to home channel during scan
+     */
+    if (station_connected && sta_init_flag) {
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            /* Only scan the band we're connected on */
+            if (ap_info.primary <= 14) {
+                /* 2.4 GHz band: all channels 1-14 */
+                params.channel_bitmap.ghz_2_channels = 0x7FFE; /* bits 1-14 */
+            } else {
+                /* 5 GHz band: channels 36-165 */
+                params.channel_bitmap.ghz_5_channels = 0x1FFFFFFF;
+            }
+            config_present = true;
+
+            /* Shorter dwell times: minimize time away from home channel */
+            params.scan_time.active.min = 0;
+            params.scan_time.active.max = 50;    /* was 120ms default */
+            params.scan_time.passive = 120;       /* was 360ms default */
+        }
+
+        /* Return to home channel periodically during scan to handle data */
+        params.coex_background_scan = true;
+        params.home_chan_dwell_time = 30;        /* 30ms on home channel between scan channels */
+    }
+
     if (sta_init_flag || softap_started) {
         /* Trigger scan */
         if (config_present) {
