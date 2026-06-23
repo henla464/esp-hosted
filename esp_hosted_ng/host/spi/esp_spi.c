@@ -354,6 +354,7 @@ static void esp_spi_work(struct work_struct *work)
 		}
 
 		trans.tx_buf = tx_skb->data;
+		esp_hex_dump_verbose("TX: ", trans.tx_buf, 32);
 	} else {
 		tx_skb = esp_spi_alloc_skb(SPI_BUF_SIZE);
 		if (!tx_skb) {
