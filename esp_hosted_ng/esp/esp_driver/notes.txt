@@ -1,0 +1,10 @@
+./setup.sh
+. ./esp-idf/export.sh
+
+# then cd network_adapter
+idf.py set-target esp32c5
+cd network_adapter
+idf.py menuconfig
+# in example configuration select SPI, and enable "De-assert HS on CS"
+idf.py build
+idf.py flash
